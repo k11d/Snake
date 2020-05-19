@@ -4,6 +4,7 @@ from graphics import Board
 
 import time
 from threading import Lock, Thread
+import random
 
 
 
@@ -18,7 +19,6 @@ class SnakeHead(SnakePart):
     def __init__(self, x, y):
         super().__init__(x, y, parent=None)
 
- 
 
 class Snake:
     def __init__(self, x, y, facing='S'):
@@ -43,73 +43,114 @@ class Snake:
         part = SnakePart(self.head.x, self.head.y, parent=self.head)
         self.body.append(part)
 
-    def update_body(self):
-        for part in self.body:
-            lastx, lasty = self._last_position
-            self._last_position = [part.x, part.y]
-            part.x = lastx
-            part.y = lasty
-
-
-
-class Player(Snake):
-    def __init__(self, x, y, facing='S'):
-        super().__init__(x, y, facing=facing)
-        self.do_next_movement = lambda:None
-    
-    def set_colors(self, idname, color):
-        if not hasattr(self, 'colors'):
-            self.colors = {}
-        _id = idname or '0'
-        self.colors[_id] = color
-
-    def left(self, n=1):
+    def _left(self, n=1):
         self._last_position[0] = self.head.x
         self._last_position[1] = self.head.y
         self.head.x -= n
         if self.head.x < 0:
             self.head.x += self.right_border 
 
-    def right(self, n=1):
+    def _right(self, n=1):
         self._last_position[0] = self.head.x
         self._last_position[1] = self.head.y
         self.head.x = (self.head.x + n) % self.right_border
 
-    def up(self, n=1):
+    def _up(self, n=1):
         self._last_position[0] = self.head.x
         self._last_position[1] = self.head.y
         self.head.y -= n
         if self.head.y < 0:
             self.head.y += self.bot_border
 
-    def down(self, n=1):
+    def _down(self, n=1):
         self._last_position[0] = self.head.x
         self._last_position[1] = self.head.y
         self.head.y = (self.head.y + n) % self.bot_border
-    
+
     def move(self, n=1):
         if self.facing == 'N':
-            self.up()
+            self._up()
         elif self.facing == 'S':
-            self.down()
+            self._down()
         elif self.facing == 'E':
-            self.right()
+            self._right()
         elif self.facing == 'W':
-            self.left()
+            self._left()
         self.update_body()
+
+    def update_body(self):
+        for part in self.body:
+            lastx, lasty = self._last_position
+            self._last_position = [part.x, part.y]
+            part.x = lastx
+            part.y = lasty
+    
+    def is_biting_itself(self):
+        for px, py in self.body_parts_positions():
+            if px == self.head.x and py == self.head.y:
+                return True
+        return False
+
+
+
+class Player(Snake):
+    def __init__(self, x, y, facing='S'):
+        super().__init__(x, y, facing=facing)
+        self.x = x
+        self.y = y
+        self.score = 0
+
+    def set_colors(self, idname, color):
+        if not hasattr(self, 'colors'):
+            self.colors = {}
+        _id = idname or '0'
+        self.colors[_id] = color
+    
+    def reset(self):
+        self.score = 0
+        self.body.clear()
+        self.head.x = self.x
+        self.head.y = self.y
+        self._last_position = [self.head.x, self.head.y]
+
+
+class Food:
+    def __init__(self, x, y, color=(200, 30, 10), points=1):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.points = points
 
 
 
 class World(Board):
+    def __init__(self, rows, cols, rowsize, colsize, bg_color):
+        super().__init__(rows, cols, rowsize, colsize, bg_color)
+        self.foods = []
+    
+    def reset(self):
+        self.foods.clear()
+
     def draw_player(self, player):
         hx, hy = player.head.x, player.head.y
         self.fill(hx, hy, player.colors['head'])
         for part in player.body:
             self.fill(part.x, part.y, player.colors['body'])
+    
+    def draw_food(self):
+        for f in self.foods:
+            self.fill(f.x, f.y, f.color)
 
-    def wrap_outbound_player(self, player):
-        px, py = player.head.x, player.head.y
+    def spawn_food(self):
+        x = random.randint(0, self.cols - 1)
+        y = random.randint(0, self.rows - 1)
+        self.foods.append(Food(x,y))
 
+    def is_colliding_food(self, player):
+        return any(
+            (player.head.x == f.x and player.head.y == f.y)
+            for f in self.foods
+        )
 
 
 class Game:
@@ -125,11 +166,17 @@ class Game:
         self._quit = True
         cv2.destroyAllWindows()
     
-    def set_world_borders(self):
+    def init_world(self):
         self.player.top_border = 0
         self.player.bot_border = self.world.rows
         self.player.left_border = 0
         self.player.right_border = self.world.cols
+        self.world.spawn_food()
+    
+    def reset_game(self):
+        self.player.reset()
+        self.world.reset()
+        self.init_world()
 
     def mainloop(self):
         t0 = time.time()
@@ -138,43 +185,50 @@ class Game:
             if t1 - t0 > self.speed_factor:
                 t0 = t1
                 self.player.move()
+                self.world.clear()
+                self.world.draw_player(self.player)
+                self.world.draw_food()
+                if self.player.is_biting_itself():
+                    self.reset_game()
+                    return self.mainloop()
+                if self.world.is_colliding_food(self.player):
+                    self.player.score += self.world.foods.pop().points
+                    self.player.grow()
+                    self.world.spawn_food()
 
+            cv2.imshow('0', self.world._grid)
             k = cv2.waitKey(1) & 0xFF
             if k == 27:
                 self.close()
                 break
-
             elif k in self._keys.values():
-                # print(k)
                 if k == ord('g'):
                     self.player.grow()
                     self.player.move()
                 elif k == ord('d'):
-                    self.player.facing = 'E'
+                    if self.player.facing != 'W':
+                        self.player.facing = 'E'
                 elif k == ord('a'):
-                    self.player.facing = 'W'
+                    if self.player.facing != 'E':
+                        self.player.facing = 'W'
                 elif k == ord('w'):
-                    self.player.facing = 'N'
+                    if self.player.facing != 'S':
+                        self.player.facing = 'N'
                 elif k == ord('s'):
-                    self.player.facing = 'S'
+                    if self.player.facing != 'N':
+                        self.player.facing = 'S'
                 elif k == ord('m'):
                     self.speed_factor += 0.01
                 elif k == ord('n'):
                     self.speed_factor -= 0.01
 
-            self.world.clear()
-            self.world.draw_player(self.player)
-            cv2.imshow('0', self.world._grid)
 
-
-
-game = Game(
-    Player(5, 5, 'S'),
-    World(64, 64, 16, 16, (0, 0, 0))
-)
-game.set_world_borders()
-
-p = game.player
-p.set_colors('head', (0, 0, 255))
-p.set_colors('body', (0,255,0))
-game.mainloop()
+if __name__ == '__main__':
+    game = Game(
+        Player(5, 5, 'S'),
+        World(12, 12, 32, 32, (0, 0, 0))
+    )
+    game.player.set_colors('head', (0, 0, 255))
+    game.player.set_colors('body', (0,255,0))
+    game.init_world()
+    game.mainloop()
