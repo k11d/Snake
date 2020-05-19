@@ -1,9 +1,6 @@
-import numpy as np
 import cv2
 from graphics import Board
-
 import time
-from threading import Lock, Thread
 import random
 
 
@@ -92,7 +89,6 @@ class Snake:
         return False
 
 
-
 class Player(Snake):
     def __init__(self, x, y, facing='S'):
         super().__init__(x, y, facing=facing)
@@ -120,7 +116,6 @@ class Food:
         self.y = y
         self.color = color
         self.points = points
-
 
 
 class World(Board):
